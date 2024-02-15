@@ -1,0 +1,87 @@
+openapi: 3.0.0
+info:
+  contact:
+    email: alex@alexmeuer.com
+    name: Alexander Meuer
+  title: Juke It Out
+  version: '0.1'
+servers: []
+paths:
+  /rooms:
+    post:
+      description: Creates a new room
+      operationId: createRoom
+      parameters: []
+      requestBody:
+        content:
+          application/json:
+            schema: {}
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Room'
+          description: Room created successfully
+        '422':
+          description: Malformed Request Body
+      summary: Create room
+      tags:
+        - rooms
+  '/rooms/{id}':
+    get:
+      description: ''
+      operationId: listRooms
+      parameters:
+        - description: A KSUID (K-Sortable Globally Unique ID)
+          explode: false
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          style: simple
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Room'
+          description: Room found and visible
+        '403':
+          description: Insufficient Permissions
+        '404':
+          description: Room does not exist
+      summary: List all rooms that visible to you
+      tags:
+        - rooms
+components:
+  callbacks: {}
+  links: {}
+  schemas:
+    UserInfo:
+      properties:
+        id:
+          type: string
+        displayName:
+          type: string
+    Room:
+      example:
+        name: name
+        id: id
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+  securitySchemes:
+    api_key:
+      in: header
+      name: api_key
+      type: apiKey
+security: []
+tags:
+  - name: rooms
+  - name: search
+  - name: users
