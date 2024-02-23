@@ -31,7 +31,7 @@ type StateVerifier interface {
 
 // RegisterRoutes registers the routes for the oauth flow.
 // It will register the following routes:
-// - GET /auth: Redirects the user to the oauth provider.
+// - GET /login: Redirects the user to the oauth provider.
 // - GET /callback: Handles the callback from the oauth provider.
 // TODO: Support remembering the redirect URL that sent the user to /login and send them back there after the oauth flow is complete.
 func RegisterRoutes(r gin.IRouter, config *Config, tokenSaver TokenSaver, stateGenerator StateGenerator, stateVerifier StateVerifier) error {
