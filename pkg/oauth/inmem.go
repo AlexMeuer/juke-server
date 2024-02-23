@@ -8,21 +8,24 @@ import (
 	"golang.org/x/oauth2"
 )
 
-// InMemoryTokenStore is an insecure store
-// that stores a single token in memory.
+// InMemoryTokenStore is an insecure store for temporary local development.
 type InMemoryTokenStore struct {
-	tok *oauth2.Token
+	toks map[string]*oauth2.Token
 }
 
-func (s *InMemoryTokenStore) GetToken(ctx *gin.Context) (*oauth2.Token, error) {
-	if s.tok == nil {
-		return nil, errors.New("token not stored")
+func (s *InMemoryTokenStore) GetToken(ctx *gin.Context, ID string) (*oauth2.Token, error) {
+	if tok, ok := s.toks[ID]; ok {
+		return tok, nil
+	} else {
+		return nil, errors.New("token not found")
 	}
-	return s.tok, nil
 }
 
-func (s *InMemoryTokenStore) SetToken(ctx *gin.Context, token *oauth2.Token) error {
-	s.tok = token
+func (s *InMemoryTokenStore) SaveToken(ctx *gin.Context, ID string, token *oauth2.Token) error {
+	if s.toks == nil {
+		s.toks = make(map[string]*oauth2.Token)
+	}
+	s.toks[ID] = token
 	return nil
 }
 
