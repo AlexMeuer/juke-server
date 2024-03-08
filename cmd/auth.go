@@ -4,6 +4,8 @@ Copyright © 2024 none
 package cmd
 
 import (
+	"log"
+
 	"github.com/alexmeuer/juke/pkg/oauth"
 	"github.com/spf13/cobra"
 )
@@ -13,7 +15,9 @@ var authCmd = &cobra.Command{
 	Use:   "auth",
 	Short: "Test the Spotify OAuth flow",
 	Run: func(cmd *cobra.Command, args []string) {
-		oauth.Foo(cmd.Context())
+		if err := oauth.Debug(cmd.Context()); err != nil {
+			log.Fatal(err)
+		}
 	},
 }
 

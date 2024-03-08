@@ -17,6 +17,7 @@ This command runs the web server, the heart of juke.`,
 			// The flag definition with init() should prevent this case.
 			panic(err)
 		}
+
 		err = server.Serve(cmd.Flag("host").Value.String(), port)
 		if err != nil {
 			panic(err)
