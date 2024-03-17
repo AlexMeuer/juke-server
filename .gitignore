@@ -1,5 +1,7 @@
 .env.local
 
+*.pem
+
 # Binaries for programs and plugins
 *.exe
 *.exe~
