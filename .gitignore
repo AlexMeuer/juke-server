@@ -1,6 +1,8 @@
 .env.local
 .direnv/
 
+*.pem
+
 # Binaries for programs and plugins
 *.exe
 *.exe~

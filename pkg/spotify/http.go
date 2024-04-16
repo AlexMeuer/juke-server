@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 )
 
@@ -48,7 +49,9 @@ func (c *Client) GetJSON(ctx context.Context, method, path string, response inte
 			Message: "unexpected status code",
 		}
 		// Attempt to decode the error response, but don't worry if it fails.
-		json.NewDecoder(resp.Body).Decode(errorResponse)
+		if err = json.NewDecoder(resp.Body).Decode(errorResponse); err != nil {
+			log.Printf("failed to decode error response: %v", err)
+		}
 		return errorResponse
 	}
 

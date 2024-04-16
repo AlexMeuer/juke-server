@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/alexmeuer/juke/pkg/oauth"
-	"github.com/alexmeuer/juke/pkg/openapi"
 	"github.com/alexmeuer/juke/pkg/spotify"
 	"github.com/gin-contrib/cors"
 
@@ -18,12 +17,6 @@ import (
 )
 
 func Serve(host string, port uint16) error {
-	r := openapi.NewRouter(openapi.ApiHandleFunctions{
-		RoomsAPI: &RoomsAPI{},
-	})
-
-	setupCORS(r)
-
 	store := cookie.NewStore([]byte(os.Getenv("SESSION_SECRET")))
 	store.Options(sessions.Options{
 		MaxAge:   int((7 * 24 * time.Hour).Seconds()),
@@ -33,19 +26,25 @@ func Serve(host string, port uint16) error {
 		Path:     "/",
 	})
 
-	r.Use(sessions.Sessions("juke-session", store))
-
-	tokenStore := &oauth.InMemoryTokenStore{}
-	stateManager := &oauth.InMemoryStateManager{}
-
 	cfg := oauth.NewSpotify(os.Getenv("SPOTIFY_CLIENT_ID"), os.Getenv("SPOTIFY_CLIENT_SECRET"), fmt.Sprintf("https://%s:%d/spotify/callback", host, port))
 
-	r.Use(func(ctx *gin.Context) {
-		ctx.Set("spotifyConfig", cfg)
-		ctx.Next()
-	})
+	tokenStore, err := oauth.NewJSONDB("api/tokens.db")
+	if err != nil {
+		return err
+	}
 
-	oauth.RegisterRoutes(r.Group("/spotify"), cfg, tokenStore, stateManager, stateManager)
+	r := gin.Default()
+
+	r.Use(CORSMiddleware()).
+		Use(sessions.Sessions("juke-session", store)).
+		Use(func(ctx *gin.Context) {
+			ctx.Set("spotifyConfig", cfg)
+			ctx.Next()
+		})
+
+	if err = oauth.RegisterRoutes(r.Group("/spotify"), cfg, tokenStore, &oauth.GinStateGenerator{}, tokenStore, tokenStore); err != nil {
+		return err
+	}
 
 	foo := r.Group("/foo").Use(requireSessionMiddleware).Use(spotifyClientMiddleware(tokenStore))
 
@@ -77,11 +76,11 @@ func Serve(host string, port uint16) error {
 	return r.RunTLS(fmt.Sprintf("%s:%d", host, port), "api/cert.pem", "api/key.pem")
 }
 
-func setupCORS(r *gin.Engine) {
+func CORSMiddleware() gin.HandlerFunc {
 	config := cors.DefaultConfig()
 	config.AllowOrigins = []string{"http://localhost:3000"}
 	config.AllowCredentials = true
-	r.Use(cors.New(config))
+	return cors.New(config)
 }
 
 func requireSessionMiddleware(ctx *gin.Context) {
@@ -98,9 +97,9 @@ func requireSessionMiddleware(ctx *gin.Context) {
 	ctx.Next()
 }
 
-func spotifyClientMiddleware(tokenStore *oauth.InMemoryTokenStore) gin.HandlerFunc {
+func spotifyClientMiddleware(r oauth.TokenReader) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
-		tok, err := tokenStore.GetToken(ctx, ctx.GetString(oauth.USER_ID_SESSION_KEY))
+		tok, err := r.ReadToken(ctx, ctx.GetString(oauth.USER_ID_SESSION_KEY))
 		if err != nil {
 			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return

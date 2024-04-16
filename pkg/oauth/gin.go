@@ -1,6 +1,7 @@
 package oauth
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -17,16 +18,24 @@ const (
 	USER_ID_SESSION_KEY = "userID"
 )
 
-type TokenSaver interface {
-	SaveToken(ctx *gin.Context, ID string, token *oauth2.Token) error
+type TokenWriter interface {
+	WriteToken(ctx context.Context, ID string, token *oauth2.Token) error
+}
+
+type TokenReader interface {
+	ReadToken(ctx context.Context, ID string) (*oauth2.Token, error)
 }
 
 type StateGenerator interface {
 	GenerateState(ctx *gin.Context) string
 }
 
+type StateWriter interface {
+	WriteState(ctx context.Context, ID, state string) error
+}
+
 type StateVerifier interface {
-	VerifyState(ctx *gin.Context, state string) error
+	VerifyState(ctx context.Context, ID, state string) error
 }
 
 // RegisterRoutes registers the routes for the oauth flow.
@@ -34,7 +43,7 @@ type StateVerifier interface {
 // - GET /login: Redirects the user to the oauth provider.
 // - GET /callback: Handles the callback from the oauth provider.
 // TODO: Support remembering the redirect URL that sent the user to /login and send them back there after the oauth flow is complete.
-func RegisterRoutes(r gin.IRouter, config *Config, tokenSaver TokenSaver, stateGenerator StateGenerator, stateVerifier StateVerifier) error {
+func RegisterRoutes(r gin.IRouter, config *Config, tokenSaver TokenWriter, stateGenerator StateGenerator, stateWriter StateWriter, stateVerifier StateVerifier) error {
 	if tokenSaver == nil {
 		return errors.New("tokenSetter is required")
 	}
@@ -48,6 +57,13 @@ func RegisterRoutes(r gin.IRouter, config *Config, tokenSaver TokenSaver, stateG
 	r.GET("/login", func(ctx *gin.Context) {
 		state := url.QueryEscape(stateGenerator.GenerateState(ctx))
 		url, verifier := config.GenerateURLAndVerifier(state)
+
+		// For convenience, I'm using the verifier as the ID for the state.
+		err := stateWriter.WriteState(ctx, verifier, state)
+		if err != nil {
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to save state: %s", err.Error())})
+			return
+		}
 		ctx.SetCookie(COOKIE_VERIFIER, verifier, 600, "/spotify", "", true, true)
 		ctx.Redirect(http.StatusFound, url)
 	})
@@ -59,7 +75,7 @@ func RegisterRoutes(r gin.IRouter, config *Config, tokenSaver TokenSaver, stateG
 	return nil
 }
 
-func handleOAuthCallback(ctx *gin.Context, config *Config, tokenSaver TokenSaver, stateVerifier StateVerifier) {
+func handleOAuthCallback(ctx *gin.Context, config *Config, tokenSaver TokenWriter, stateVerifier StateVerifier) {
 	if err := ctx.Query("error"); err != "" {
 		ctx.JSON(http.StatusUnprocessableEntity, gin.H{"error": err})
 		return
@@ -71,19 +87,20 @@ func handleOAuthCallback(ctx *gin.Context, config *Config, tokenSaver TokenSaver
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
+	state_ID, err := ctx.Cookie(COOKIE_VERIFIER)
+	if err != nil {
+		ctx.JSON(http.StatusUnprocessableEntity, gin.H{"error": "state ID cookie is required"})
+		return
+	}
+
 	// Fail if the state does not match.
-	if err := stateVerifier.VerifyState(ctx, state); err != nil {
+	if err := stateVerifier.VerifyState(ctx, state_ID, state); err != nil {
 		ctx.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
 		return
 	}
 
-	verifier, err := ctx.Cookie(COOKIE_VERIFIER)
-	if err != nil {
-		ctx.JSON(http.StatusUnprocessableEntity, gin.H{"error": "verifier cookie is required"})
-		return
-	}
-
-	tok, err := config.Exchange(ctx, code, state, verifier)
+	tok, err := exchangeToken(ctx, config, code, state)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -118,10 +135,10 @@ func validateOAuthCallbackParams(ctx *gin.Context) (string, string, error) {
 	return code, state, nil
 }
 
-func exchangeToken(ctx *gin.Context, config *Config, code, state, verifier string) (*oauth2.Token, error) {
+func exchangeToken(ctx *gin.Context, config *Config, code, state string) (*oauth2.Token, error) {
 	verifier, err := ctx.Cookie(COOKIE_VERIFIER)
 	if err != nil {
-		return nil, errors.New("cookie is required")
+		return nil, errors.New("verifier cookie is required")
 	}
 
 	tok, err := config.Exchange(ctx, code, state, verifier)
@@ -133,7 +150,8 @@ func exchangeToken(ctx *gin.Context, config *Config, code, state, verifier strin
 }
 
 // fetchUserInfoAndSave fetches the user's info from the spotify API, it then saves the user's ID in the session and saves the token.
-func fetchUserInfoAndSave(ctx *gin.Context, config *Config, tokenSaver TokenSaver, tok *oauth2.Token) error {
+func fetchUserInfoAndSave(ctx *gin.Context, config *Config, tokenSaver TokenWriter, tok *oauth2.Token) error {
+	// FIXME: This package should not know about the spotify package.
 	client := spotify.New(config.Client(ctx, tok))
 	me, err := client.Me(ctx)
 	if err != nil {
@@ -147,7 +165,7 @@ func fetchUserInfoAndSave(ctx *gin.Context, config *Config, tokenSaver TokenSave
 	}
 	fmt.Printf("Saved session: %+v\n", s)
 
-	if err := tokenSaver.SaveToken(ctx, me.ID, tok); err != nil {
+	if err := tokenSaver.WriteToken(ctx, me.ID, tok); err != nil {
 		return fmt.Errorf("login succeeded but failed to save token: %w", err)
 	}
 
